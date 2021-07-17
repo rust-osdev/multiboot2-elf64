@@ -30,6 +30,8 @@ pub use vbe_info::{
     VBECapabilities, VBEControlInfo, VBEDirectColorAttributes, VBEField, VBEInfoTag,
     VBEMemoryModel, VBEModeAttributes, VBEModeInfo, VBEWindowAttributes,
 };
+use core::fmt::{Display, Formatter};
+use error::MbiLoadError;
 
 #[macro_use]
 extern crate bitflags;
@@ -43,6 +45,7 @@ mod memory_map;
 mod module;
 mod rsdp;
 mod vbe_info;
+pub mod error;
 
 /// Load the multiboot boot information struct from an address.
 ///
@@ -59,14 +62,23 @@ mod vbe_info;
 ///     println!("{:?}", boot_info);
 /// }
 /// ```
-pub unsafe fn load(address: usize) -> BootInformation {
-    assert_eq!(0, address & 0b111);
+pub unsafe fn load(address: usize) -> Result<BootInformation, MbiLoadError> {
+    if 0 != address & 0b111 {
+        return Err(MbiLoadError::IllegalAddress)
+    }
     let multiboot = &*(address as *const BootInformationInner);
-    assert_eq!(0, multiboot.total_size & 0b111);
-    assert!(multiboot.has_valid_end_tag());
-    BootInformation {
-        inner: multiboot,
-        offset: 0,
+    if 0 != multiboot.total_size & 0b111 {
+        return Err(MbiLoadError::IllegalTotalSize(multiboot.total_size))
+    }
+    if multiboot.has_valid_end_tag() {
+        Ok(
+          BootInformation {
+                inner: multiboot,
+                offset: 0,
+            }
+        )
+    } else {
+        Err(MbiLoadError::NoEndTag)
     }
 }
 
@@ -81,18 +93,8 @@ pub unsafe fn load(address: usize) -> BootInformation {
 /// let boot_info = load_with_offset(ptr as usize, 0xCAFEBABE);
 /// println!("{:?}", boot_info);
 /// ```
-pub unsafe fn load_with_offset(address: usize, offset: usize) -> BootInformation {
-    if !cfg!(test) {
-        assert_eq!(0, address & 0b111);
-        assert_eq!(0, offset & 0b111);
-    }
-    let multiboot = &*((address + offset) as *const BootInformationInner);
-    assert_eq!(0, multiboot.total_size & 0b111);
-    assert!(multiboot.has_valid_end_tag());
-    BootInformation {
-        inner: multiboot,
-        offset: offset,
-    }
+pub unsafe fn load_with_offset(address: usize, offset: usize) -> Result<BootInformation, MbiLoadError> {
+    load(address + offset)
 }
 
 /// A Multiboot 2 Boot Information struct.
